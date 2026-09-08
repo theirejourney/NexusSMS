@@ -1,1 +1,1 @@
-"""Provider plugins for NexusSMS."""
+"""Provider adapters for NexusSMS."""
