@@ -1,0 +1,24 @@
+{
+  "providers": {
+    "twilio": {
+      "secret": "your_twilio_auth_token",
+      "enabled": true
+    },
+    "aws_sns": {
+      "enabled": true,
+      "region": "us-east-1"
+    },
+    "vonage": {
+      "enabled": true,
+      "secret": "your_vonage_signature_secret"
+    },
+    "generic": {
+      "enabled": true,
+      "secret": "my_custom_api_key",
+      "auth_type": "api_key",
+      "id_field": "message_id",
+      "sender_field": "from_number",
+      "body_field": "text"
+    }
+  }
+}
