@@ -5,19 +5,20 @@
       "secret": "${TWILIO_AUTH_TOKEN}"
     },
     "aws_sns": {
-      "enabled": true,
+      "enabled": false,
       "region": "us-east-1"
     },
     "vonage": {
-      "enabled": true,
-      "secret": "${VONAGE_SIGNATURE_SECRET}"
+      "enabled": false,
+      "secret": "${VONAGE_SECRET}"
     },
     "generic": {
       "enabled": false,
-      "secret": "my_custom_api_key",
+      "secret": "${GENERIC_API_KEY}",
       "auth_type": "api_key",
       "id_field": "message_id",
       "sender_field": "from_number",
+      "recipient_field": "to_number",
       "body_field": "text"
     }
   }
