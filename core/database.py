@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 import sqlite3
 import json
+import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Dict, Any, List
+
+logger = logging.getLogger("nexussms")
 
 DEFAULT_DB = os.environ.get("NEXUSSMS_DB", "nexus_sms.db")
 
@@ -15,7 +18,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     provider            TEXT NOT NULL DEFAULT 'twilio',
-    provider_message_id TEXT NOT NULL,
+    provider_message_id TEXT,
     timestamp           TEXT NOT NULL,
     sender              TEXT NOT NULL,
     recipient           TEXT,
@@ -33,6 +36,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender COLLATE NOC
 CREATE INDEX IF NOT EXISTS idx_messages_provider  ON messages(provider);
 CREATE INDEX IF NOT EXISTS idx_messages_category  ON messages(category);
 """
+
+_initialized_dbs: set[str] = set()
 
 
 @contextmanager
@@ -52,8 +57,12 @@ def connect(db_path: str = DEFAULT_DB) -> Iterator[sqlite3.Connection]:
 
 
 def init_db(db_path: str = DEFAULT_DB) -> None:
+    if db_path in _initialized_dbs:
+        return
     with connect(db_path) as conn:
         conn.executescript(_SCHEMA)
+    _initialized_dbs.add(db_path)
+    logger.info("Database initialized: %s", db_path)
 
 
 def is_duplicate(provider: str, provider_message_id: str, db_path: str = DEFAULT_DB) -> bool:
@@ -67,13 +76,24 @@ def is_duplicate(provider: str, provider_message_id: str, db_path: str = DEFAULT
         return row is not None
 
 
-def insert_message(unified, result: dict, db_path: str = DEFAULT_DB) -> bool:
-    """Insert a normalized message. Returns True if inserted, False if duplicate."""
-    from providers.base import UnifiedMessage
-    
-    if not isinstance(unified, UnifiedMessage):
-        raise TypeError("unified must be a UnifiedMessage instance")
-    
+def insert_message(
+    provider: str,
+    provider_message_id: Optional[str],
+    sender: str,
+    recipient: Optional[str],
+    category: Optional[str],
+    extracted_code: Optional[str],
+    raw_body: str,
+    raw_payload: Optional[Dict[str, Any]] = None,
+    db_path: str = DEFAULT_DB
+) -> bool:
+    payload_json: Optional[str] = None
+    if raw_payload is not None:
+        try:
+            payload_json = json.dumps(raw_payload, default=str)
+        except (TypeError, ValueError) as exc:
+            logger.warning("Failed to serialize raw_payload: %s", exc)
+
     with connect(db_path) as conn:
         cur = conn.execute(
             """INSERT OR IGNORE INTO messages
@@ -81,18 +101,39 @@ def insert_message(unified, result: dict, db_path: str = DEFAULT_DB) -> bool:
                 category, extracted_code, raw_body, raw_payload)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                unified.provider,
-                unified.provider_message_id,
+                provider,
+                provider_message_id,
                 datetime.now(timezone.utc).isoformat(),
-                unified.sender,
-                unified.recipient,
-                result.get("category", "unknown"),
-                result.get("extracted_code"),
-                unified.body,
-                json.dumps(unified.raw_payload, default=str)
+                sender,
+                recipient,
+                category,
+                extracted_code,
+                raw_body,
+                payload_json
             ),
         )
         return cur.rowcount > 0
+
+
+def log_message(
+    sender: str,
+    category: str,
+    extracted_code: Optional[str],
+    raw_body: str,
+    message_sid: Optional[str] = None,
+    db_path: str = DEFAULT_DB
+) -> bool:
+    return insert_message(
+        provider="twilio",
+        provider_message_id=message_sid,
+        sender=sender,
+        recipient=None,
+        category=category,
+        extracted_code=extracted_code,
+        raw_body=raw_body,
+        raw_payload=None,
+        db_path=db_path
+    )
 
 
 def get_messages(
@@ -101,10 +142,10 @@ def get_messages(
     category: Optional[str] = None,
     limit: int = 20,
     db_path: str = DEFAULT_DB
-) -> list[dict]:
+) -> List[dict]:
     query = "SELECT * FROM messages WHERE 1=1"
-    params = []
-    
+    params: List[Any] = []
+
     if sender:
         query += " AND sender LIKE ? COLLATE NOCASE"
         params.append(f"%{sender}%")
@@ -114,55 +155,22 @@ def get_messages(
     if category:
         query += " AND category = ?"
         params.append(category)
-    
+
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
-    
+
     with connect(db_path) as conn:
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
-# Backward-compatible aliases
-message_exists = is_duplicate
-
-
-def log_message(sender: str, category: str, extracted_code: Optional[str],
-                raw_body: str, message_sid: Optional[str] = None,
-                db_path: str = DEFAULT_DB) -> bool:
-    """Backward-compatible insert wrapper."""
-    from providers.base import UnifiedMessage
-    
-    unified = UnifiedMessage(
-        provider="twilio",
-        provider_message_id=message_sid or "",
-        sender=sender,
-        recipient="",
-        body=raw_body,
-        timestamp=None,
-        raw_payload={}
-    )
-    return insert_message(unified, {
-        "category": category,
-        "extracted_code": extracted_code,
-    }, db_path)
-
-
-def get_recent_messages(limit: int = 10, sender: Optional[str] = None,
-                        provider: Optional[str] = None,
-                        category: Optional[str] = None,
-                        db_path: str = DEFAULT_DB) -> list[dict]:
-    """Backward-compatible fetch wrapper."""
-    return get_messages(
-        sender=sender,
-        provider=provider,
-        category=category,
-        limit=limit,
-        db_path=db_path
-    )
-
-
-def get_latest_code(sender: Optional[str] = None, category: Optional[str] = None,
-                    db_path: str = DEFAULT_DB) -> Optional[str]:
-    """Return the most recently extracted code, optionally filtered."""
-    rows = get_recent_messages(limit=1, sender=sender, category=category, db_path=db_path)
+def get_latest_code(
+    sender: Optional[str] = None,
+    category: Optional[str] = None,
+    db_path: str = DEFAULT_DB
+) -> Optional[str]:
+    rows = get_messages(limit=1, sender=sender, category=category, db_path=db_path)
     return rows[0]["extracted_code"] if rows else None
+
+
+message_exists = is_duplicate
+get_recent_messages = get_messages
