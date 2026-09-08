@@ -12,17 +12,18 @@ _PROVIDER_MAP: Dict[str, Type[BaseProvider]] = {
     "generic": GenericProvider,
 }
 
+
 class ProviderRegistry:
     def __init__(self, config: dict):
         self._providers: Dict[str, BaseProvider] = {}
         for name, provider_class in _PROVIDER_MAP.items():
-            if name in config:
+            if name in config and config[name].get("enabled", True):
                 self._providers[name] = provider_class(config[name])
-    
+
     def get(self, name: str) -> BaseProvider:
         if name not in self._providers:
-            raise ValueError(f"Provider '{name}' not configured")
+            raise ValueError(f"Provider '{name}' not configured or not enabled")
         return self._providers[name]
-    
+
     def list_active(self):
         return list(self._providers.keys())
