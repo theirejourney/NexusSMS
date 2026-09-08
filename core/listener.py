@@ -10,10 +10,11 @@ try:
     colorama_init(autoreset=True)
 except ImportError:
     class _NoColor:
-        def __getattr__(self, _): return ""
+        def __getattr__(self, _):
+            return ""
     Fore = Style = _NoColor()
 
-from core.database import log_message
+from core.database import insert_message
 from core.extractor import ExtractionResult, parse_message
 
 logger = logging.getLogger("nexussms")
@@ -36,15 +37,17 @@ class MessageHandler:
 
     def handle(self, sender: str, body: str,
                message_sid: Optional[str] = None) -> ExtractionResult:
-        """Full pipeline for one incoming message. Never raises."""
         result = parse_message(sender, body)
         try:
-            inserted = log_message(
+            inserted = insert_message(
+                provider="twilio",
+                provider_message_id=message_sid,
                 sender=result.sender,
+                recipient=None,
                 category=result.category,
                 extracted_code=result.extracted_code,
                 raw_body=result.raw_body,
-                message_sid=message_sid,
+                raw_payload=None,
                 db_path=self.db_path,
             )
         except Exception:
@@ -65,11 +68,13 @@ class MessageHandler:
                   + (f"{Fore.YELLOW} (duplicate, skipped){Style.RESET_ALL}"
                      if not inserted else ""))
 
-        self.notify(result, inserted)
+        self._run_callbacks(result, inserted)
         return result
 
-    def notify(self, result: ExtractionResult, inserted: bool) -> None:
-        """Trigger all registered callbacks."""
+    def notify(self, result: ExtractionResult, inserted: bool = True) -> None:
+        self._run_callbacks(result, inserted)
+
+    def _run_callbacks(self, result: ExtractionResult, inserted: bool) -> None:
         for cb in self.callbacks:
             try:
                 cb(result, inserted)
