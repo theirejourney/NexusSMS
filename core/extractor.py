@@ -37,7 +37,7 @@ _RULES: dict[str, dict] = {
         "regex": r"(?:verification|security|auth(?:entication)?)\s*(?:code)?\s*(?:is|:|-)?\s*([0-9A-Za-z]{4,10})",
     },
     "general": {
-        "senders": ["*"],  # wildcard — never matched by sender, used as fallback
+        "senders": ["*"],
         "regex": r"(?<![0-9])([0-9]{4,8})(?![0-9])",
     },
 }
@@ -73,11 +73,7 @@ def _detect_category(sender: str) -> str:
 
 def parse_message(sender: str, body: str,
                   general_fallback: bool = True) -> ExtractionResult:
-    """Parse an incoming SMS into a structured :class:`ExtractionResult`.
-
-    Pass ``general_fallback=False`` to return ``extracted_code=None`` when no
-    institution-specific rule matches, instead of scanning for any 4-8 digit run.
-    """
+    """Parse an incoming SMS into a structured :class:`ExtractionResult`."""
     category = _detect_category(sender)
     rule = _RULES[category]
 
