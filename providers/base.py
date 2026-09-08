@@ -2,21 +2,23 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
+
 @dataclass
 class UnifiedMessage:
-    provider: str           # "twilio", "aws_sns", "vonage", etc.
-    provider_message_id: str  # Original ID from provider
-    sender: str             # E.164 phone number or alphanumeric
-    recipient: str          # E.164 phone number
-    body: str               # Message content
-    timestamp: Optional[str]  # ISO 8601
+    provider: str
+    provider_message_id: str
+    sender: str
+    recipient: str
+    body: str
+    timestamp: Optional[str]
     raw_payload: Dict[str, Any]
+
 
 class BaseProvider(ABC):
     name: str = "base"
     
     @abstractmethod
-    def validate_webhook(self, headers: Dict[str, str], body: bytes, secret: str) -> bool:
+    def validate_webhook(self, headers: Dict[str, str], body, secret: str) -> bool:
         """Verify webhook authenticity using provider-specific signature."""
         pass
     
