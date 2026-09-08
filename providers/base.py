@@ -16,18 +16,15 @@ class UnifiedMessage:
 
 class BaseProvider(ABC):
     name: str = "base"
-    
+
     @abstractmethod
-    def validate_webhook(self, headers: Dict[str, str], body, secret: str) -> bool:
-        """Verify webhook authenticity using provider-specific signature."""
+    def validate_webhook(self, headers: Dict[str, str], body: bytes, secret: str) -> bool:
         pass
-    
+
     @abstractmethod
     def parse_payload(self, payload: Dict[str, Any]) -> UnifiedMessage:
-        """Convert provider-specific payload to unified format."""
         pass
-    
+
     @abstractmethod
     def get_message_id(self, payload: Dict[str, Any]) -> str:
-        """Extract unique message ID for deduplication."""
         pass
