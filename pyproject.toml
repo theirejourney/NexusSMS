@@ -4,26 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexussms"
-version = "1.0.0"
-description = "Universal OTP & Message Ingestion Engine"
+version = "1.1.0"
+description = "Asynchronous Python utility for capturing, parsing, and logging incoming institutional SMS and OTP verification codes."
 readme = "README.md"
 requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "IRE"}
+]
 dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
     "twilio>=8.0.0",
-    "httpx>=0.25.0",
+    "httpx>=0.24.0",
     "colorama>=0.4.6",
     "python-dotenv>=1.0.0",
     "slowapi>=0.1.9",
     "pydantic>=2.0.0",
-    "cryptography>=41.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
 ]
 
 [project.scripts]
