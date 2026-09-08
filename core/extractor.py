@@ -5,7 +5,7 @@ Fully pluggable — register your own institution rules at runtime:
     from core.extractor import register_rule, parse_message
 
     register_rule("crypto", senders=["Coinbase", "Binance"],
-                  regex=r"(?:code|verify)[^0-9]{{0,10}}([0-9]{{4,8}})")
+                  regex=r"(?:code|verify)[^0-9]{0,10}([0-9]{4,8})")
     result = parse_message(sender, body)
 """
 
@@ -26,14 +26,13 @@ class ExtractionResult:
     all_candidates: tuple = field(default_factory=tuple)
 
 
-# Built-in rules, ordered: first sender match wins, "general" is the fallback.
 _RULES: dict[str, dict] = {
     "banking": {
-        "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo", "Venmo"],
+        "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo", "Venmo", "Bank of America"],
         "regex": r"(?:code|password|pin|token|otp)\s*(?:is|:|-)?\s*([0-9]{4,8})",
     },
     "tech": {
-        "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft", "Apple", "Facebook", "Meta"],
+        "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft", "Apple", "Facebook", "Meta", "Amazon"],
         "regex": r"(?:verification|security|auth(?:entication)?)\s*(?:code)?\s*(?:is|:|-)?\s*([0-9A-Za-z]{4,10})",
     },
     "general": {
@@ -44,20 +43,17 @@ _RULES: dict[str, dict] = {
 
 
 def register_rule(category: str, senders: list[str], regex: str) -> None:
-    """Add or override an institution rule at runtime."""
-    re.compile(regex)  # fail fast on a bad pattern
+    re.compile(regex)
     _RULES[category] = {"senders": senders, "regex": regex}
 
 
 def remove_rule(category: str) -> None:
-    """Remove a rule. The "general" fallback cannot be removed."""
     if category == "general":
         raise ValueError("cannot remove the 'general' fallback rule")
     _RULES.pop(category, None)
 
 
 def list_rules() -> dict:
-    """Return a copy of the current rule registry."""
     return {k: dict(v) for k, v in _RULES.items()}
 
 
@@ -71,9 +67,7 @@ def _detect_category(sender: str) -> str:
     return "general"
 
 
-def parse_message(sender: str, body: str,
-                  general_fallback: bool = True) -> ExtractionResult:
-    """Parse an incoming SMS into a structured :class:`ExtractionResult`."""
+def parse_message(sender: str, body: str, general_fallback: bool = True) -> ExtractionResult:
     category = _detect_category(sender)
     rule = _RULES[category]
 
@@ -86,5 +80,4 @@ def parse_message(sender: str, body: str,
     return ExtractionResult(sender, category, code, body, rule["regex"], candidates)
 
 
-# Backwards-compatible alias for the original API.
 parse_institution_message = parse_message
