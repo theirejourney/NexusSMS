@@ -1,0 +1,33 @@
+import re
+
+INSTITUTION_PATTERNS = {
+    "banking": {
+        "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo"],
+        "regex": r"(?:code|password|pin|token)[\sis:]+([0-9]{4,8})",
+    },
+    "tech": {
+        "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft"],
+        "regex": r"(?:verification|security|auth)[\scodeis:]+([0-9A-Za-z]{6,8})",
+    },
+    "general": {
+        "senders": ["*"],
+        "regex": r"\b([0-9]{4,8})\b",
+    },
+}
+
+def parse_institution_message(sender: str, body: str):
+    category = "general"
+    for cat, rules in INSTITUTION_PATTERNS.items():
+        if cat != "general" and any(s.lower() in sender.lower() for s in rules["senders"]):
+            category = cat
+            break
+    
+    pattern = INSTITUTION_PATTERNS[category]["regex"]
+    match = re.search(pattern, body, re.IGNORECASE)
+    
+    return {
+        "category": category,
+        "sender": sender,
+        "extracted_code": match.group(1) if match else None,
+        "raw_body": body
+    }
