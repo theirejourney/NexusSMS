@@ -8,7 +8,7 @@ from typing import Callable, Optional
 try:
     from colorama import Fore, Style, init as colorama_init
     colorama_init(autoreset=True)
-except ImportError:  # graceful fallback when colorama is not installed
+except ImportError:
     class _NoColor:
         def __getattr__(self, _): return ""
     Fore = Style = _NoColor()
@@ -18,19 +18,10 @@ from core.extractor import ExtractionResult, parse_message
 
 logger = logging.getLogger("nexussms")
 
-# Callback signature: fn(result: ExtractionResult, inserted: bool) -> None
 Callback = Callable[[ExtractionResult, bool], None]
 
 
 class MessageHandler:
-    """Orchestrates parsing, persistence and notifications for each SMS.
-
-    Args:
-        db_path:       SQLite file to write to.
-        callbacks:     Functions called after every processed message.
-        print_output:  Echo a colored console line per message (default True).
-    """
-
     def __init__(self, db_path: str = "nexus_sms.db",
                  callbacks: Optional[list[Callback]] = None,
                  print_output: bool = True):
@@ -74,16 +65,18 @@ class MessageHandler:
                   + (f"{Fore.YELLOW} (duplicate, skipped){Style.RESET_ALL}"
                      if not inserted else ""))
 
+        self.notify(result, inserted)
+        return result
+
+    def notify(self, result: ExtractionResult, inserted: bool) -> None:
+        """Trigger all registered callbacks."""
         for cb in self.callbacks:
             try:
                 cb(result, inserted)
             except Exception:
                 logger.exception("callback %r failed", cb)
 
-        return result
 
-
-# Backwards-compatible function API.
 _default_handler: Optional[MessageHandler] = None
 
 
