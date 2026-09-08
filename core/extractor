@@ -1,33 +1,94 @@
-import re
+"""SMS parsing engine: detects institution category and extracts OTP codes.
 
-INSTITUTION_PATTERNS = {
+Fully pluggable — register your own institution rules at runtime:
+
+    from core.extractor import register_rule, parse_message
+
+    register_rule("crypto", senders=["Coinbase", "Binance"],
+                  regex=r"(?:code|verify)[^0-9]{{0,10}}([0-9]{{4,8}})")
+    result = parse_message(sender, body)
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass(frozen=True)
+class ExtractionResult:
+    sender: str
+    category: str
+    extracted_code: Optional[str]
+    raw_body: str
+    matched_rule: str
+    all_candidates: tuple = field(default_factory=tuple)
+
+
+# Built-in rules, ordered: first sender match wins, "general" is the fallback.
+_RULES: dict[str, dict] = {
     "banking": {
-        "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo"],
-        "regex": r"(?:code|password|pin|token)\s*(?:is|:)?\s*([0-9]{4,8})",
+        "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo", "Venmo"],
+        "regex": r"(?:code|password|pin|token|otp)\s*(?:is|:|-)?\s*([0-9]{4,8})",
     },
     "tech": {
-        "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft"],
-        "regex": r"(?:verification|security|auth)\s*(?:code\s*)?(?:is|:)?\s*([0-9A-Za-z]{6,8})",
+        "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft", "Apple", "Facebook", "Meta"],
+        "regex": r"(?:verification|security|auth(?:entication)?)\s*(?:code)?\s*(?:is|:|-)?\s*([0-9A-Za-z]{4,10})",
     },
     "general": {
-        "senders": ["*"],
-        "regex": r"\b([0-9]{4,8})\b",
+        "senders": ["*"],  # wildcard — never matched by sender, used as fallback
+        "regex": r"(?<![0-9])([0-9]{4,8})(?![0-9])",
     },
 }
 
-def parse_institution_message(sender: str, body: str):
-    category = "general"
-    for cat, rules in INSTITUTION_PATTERNS.items():
-        if cat != "general" and any(s.lower() in sender.lower() for s in rules["senders"]):
-            category = cat
-            break
-    
-    pattern = INSTITUTION_PATTERNS[category]["regex"]
-    match = re.search(pattern, body, re.IGNORECASE)
-    
-    return {
-        "category": category,
-        "sender": sender,
-        "extracted_code": match.group(1) if match else None,
-        "raw_body": body
-    }
+
+def register_rule(category: str, senders: list[str], regex: str) -> None:
+    """Add or override an institution rule at runtime."""
+    re.compile(regex)  # fail fast on a bad pattern
+    _RULES[category] = {"senders": senders, "regex": regex}
+
+
+def remove_rule(category: str) -> None:
+    """Remove a rule. The "general" fallback cannot be removed."""
+    if category == "general":
+        raise ValueError("cannot remove the 'general' fallback rule")
+    _RULES.pop(category, None)
+
+
+def list_rules() -> dict:
+    """Return a copy of the current rule registry."""
+    return {k: dict(v) for k, v in _RULES.items()}
+
+
+def _detect_category(sender: str) -> str:
+    s = sender.lower()
+    for cat, rule in _RULES.items():
+        if cat == "general":
+            continue
+        if any(p.lower() in s for p in rule["senders"]):
+            return cat
+    return "general"
+
+
+def parse_message(sender: str, body: str,
+                  general_fallback: bool = True) -> ExtractionResult:
+    """Parse an incoming SMS into a structured :class:`ExtractionResult`.
+
+    Pass ``general_fallback=False`` to return ``extracted_code=None`` when no
+    institution-specific rule matches, instead of scanning for any 4-8 digit run.
+    """
+    category = _detect_category(sender)
+    rule = _RULES[category]
+
+    match = re.search(rule["regex"], body, re.IGNORECASE)
+    if not match and category == "general" and not general_fallback:
+        return ExtractionResult(sender, category, None, body, rule["regex"])
+
+    code = match.group(1) if match else None
+    candidates = tuple(m.group(1) for m in re.finditer(rule["regex"], body, re.IGNORECASE))
+    return ExtractionResult(sender, category, code, body, rule["regex"], candidates)
+
+
+# Backwards-compatible alias for the original API.
+parse_institution_message = parse_message
