@@ -9,8 +9,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, Optional
 
-from providers.base import UnifiedMessage
-
 DEFAULT_DB = os.environ.get("NEXUSSMS_DB", "nexus_sms.db")
 
 _SCHEMA = """
@@ -27,13 +25,13 @@ CREATE TABLE IF NOT EXISTS messages (
     raw_payload         TEXT
 );
 
--- Composite unique key for universal deduplication
 CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_msg_id 
     ON messages(provider, provider_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender);
+CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_messages_provider  ON messages(provider);
+CREATE INDEX IF NOT EXISTS idx_messages_category  ON messages(category);
 """
 
 
@@ -61,7 +59,6 @@ def init_db(db_path: str = DEFAULT_DB) -> None:
 def is_duplicate(provider: str, provider_message_id: str, db_path: str = DEFAULT_DB) -> bool:
     if not provider_message_id:
         return False
-    init_db(db_path)
     with connect(db_path) as conn:
         row = conn.execute(
             "SELECT 1 FROM messages WHERE provider = ? AND provider_message_id = ?",
@@ -70,9 +67,13 @@ def is_duplicate(provider: str, provider_message_id: str, db_path: str = DEFAULT
         return row is not None
 
 
-def insert_message(unified: UnifiedMessage, result: dict, db_path: str = DEFAULT_DB) -> bool:
+def insert_message(unified, result: dict, db_path: str = DEFAULT_DB) -> bool:
     """Insert a normalized message. Returns True if inserted, False if duplicate."""
-    init_db(db_path)
+    from providers.base import UnifiedMessage
+    
+    if not isinstance(unified, UnifiedMessage):
+        raise TypeError("unified must be a UnifiedMessage instance")
+    
     with connect(db_path) as conn:
         cur = conn.execute(
             """INSERT OR IGNORE INTO messages
@@ -88,7 +89,7 @@ def insert_message(unified: UnifiedMessage, result: dict, db_path: str = DEFAULT
                 result.get("category", "unknown"),
                 result.get("extracted_code"),
                 unified.body,
-                json.dumps(unified.raw_payload)
+                json.dumps(unified.raw_payload, default=str)
             ),
         )
         return cur.rowcount > 0
@@ -101,12 +102,11 @@ def get_messages(
     limit: int = 20,
     db_path: str = DEFAULT_DB
 ) -> list[dict]:
-    init_db(db_path)
     query = "SELECT * FROM messages WHERE 1=1"
     params = []
     
     if sender:
-        query += " AND sender LIKE ?"
+        query += " AND sender LIKE ? COLLATE NOCASE"
         params.append(f"%{sender}%")
     if provider:
         query += " AND provider = ?"
@@ -122,63 +122,43 @@ def get_messages(
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
-# Backward-compat aliases
+# Backward-compatible aliases
 message_exists = is_duplicate
-log_message = insert_message
-get_recent_messages = get_messages        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def init_db(db_path: str = DEFAULT_DB) -> None:
-    with connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
-
-
-def message_exists(message_sid: str, db_path: str = DEFAULT_DB) -> bool:
-    if not message_sid:
-        return False
-    with connect(db_path) as conn:
-        row = conn.execute("SELECT 1 FROM messages WHERE message_sid = ?",
-                           (message_sid,)).fetchone()
-        return row is not None
 
 
 def log_message(sender: str, category: str, extracted_code: Optional[str],
                 raw_body: str, message_sid: Optional[str] = None,
                 db_path: str = DEFAULT_DB) -> bool:
-    """Insert a message. Returns False (no-op) if message_sid already exists."""
-    init_db(db_path)
-    with connect(db_path) as conn:
-        cur = conn.execute(
-            """INSERT OR IGNORE INTO messages
-               (message_sid, timestamp, sender, category, extracted_code, raw_body)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (message_sid, datetime.now(timezone.utc).isoformat(),
-             sender, category, extracted_code, raw_body),
-        )
-        return cur.rowcount > 0
+    """Backward-compatible insert wrapper."""
+    from providers.base import UnifiedMessage
+    
+    unified = UnifiedMessage(
+        provider="twilio",
+        provider_message_id=message_sid or "",
+        sender=sender,
+        recipient="",
+        body=raw_body,
+        timestamp=None,
+        raw_payload={}
+    )
+    return insert_message(unified, {
+        "category": category,
+        "extracted_code": extracted_code,
+    }, db_path)
 
 
 def get_recent_messages(limit: int = 10, sender: Optional[str] = None,
+                        provider: Optional[str] = None,
                         category: Optional[str] = None,
                         db_path: str = DEFAULT_DB) -> list[dict]:
-    """Fetch recent messages, optionally filtered by sender and/or category."""
-    query, params = "SELECT * FROM messages WHERE 1=1", []
-    if sender:
-        query += " AND sender LIKE ?"
-        params.append(f"%{sender}%")
-    if category:
-        query += " AND category = ?"
-        params.append(category)
-    query += " ORDER BY id DESC LIMIT ?"
-    params.append(limit)
-    with connect(db_path) as conn:
-        return [dict(r) for r in conn.execute(query, params).fetchall()]
+    """Backward-compatible fetch wrapper."""
+    return get_messages(
+        sender=sender,
+        provider=provider,
+        category=category,
+        limit=limit,
+        db_path=db_path
+    )
 
 
 def get_latest_code(sender: Optional[str] = None, category: Optional[str] = None,
