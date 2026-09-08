@@ -1,8 +1,8 @@
 {
   "providers": {
     "twilio": {
-      "secret": "your_twilio_auth_token",
-      "enabled": true
+      "enabled": true,
+      "secret": "${TWILIO_AUTH_TOKEN}"
     },
     "aws_sns": {
       "enabled": true,
@@ -10,10 +10,10 @@
     },
     "vonage": {
       "enabled": true,
-      "secret": "your_vonage_signature_secret"
+      "secret": "${VONAGE_SIGNATURE_SECRET}"
     },
     "generic": {
-      "enabled": true,
+      "enabled": false,
       "secret": "my_custom_api_key",
       "auth_type": "api_key",
       "id_field": "message_id",
