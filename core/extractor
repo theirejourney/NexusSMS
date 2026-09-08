@@ -3,11 +3,11 @@ import re
 INSTITUTION_PATTERNS = {
     "banking": {
         "senders": ["Chase", "PayPal", "Revolut", "BofA", "WellsFargo"],
-        "regex": r"(?:code|password|pin|token)[\sis:]+([0-9]{4,8})",
+        "regex": r"(?:code|password|pin|token)\s*(?:is|:)?\s*([0-9]{4,8})",
     },
     "tech": {
         "senders": ["AWS", "GitHub", "Google", "Cloudflare", "Microsoft"],
-        "regex": r"(?:verification|security|auth)[\scodeis:]+([0-9A-Za-z]{6,8})",
+        "regex": r"(?:verification|security|auth)\s*(?:code\s*)?(?:is|:)?\s*([0-9A-Za-z]{6,8})",
     },
     "general": {
         "senders": ["*"],
